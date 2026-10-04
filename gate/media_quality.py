@@ -76,6 +76,11 @@ def extract_canonical_avid(raw_str: str) -> str:
     clean = re.sub(r"CPZ69-(\d+)", r"CPZ-69\1", clean)
     clean = re.sub(r"^420([A-Z]+-\d+)", r"\1", clean)
 
+    # 剥离典型论坛和发布组前缀 (如 [FHD-1080P], hjd-2048-, 【ses-23】, 第一會所新片@SIS001@ 等)
+    clean = re.sub(r"^\[[^\]]+\]", " ", clean)
+    clean = re.sub(r"^【[^】]+】", " ", clean)
+    clean = re.sub(r"(?:HJD[-_]?2048(?:[-_]\d+)?|XUHANG[-_]?\d+|ZILANG[-_]?\d+|TANWYK[-_]?\d+|SIS001|第一會所新片|FHD[-_]?\d+M?)[-_@ ]*", " ", clean, flags=re.I)
+
     m = re.search(r"([A-Z0-9]+-\d+)", clean)
     if not m:
         return ""

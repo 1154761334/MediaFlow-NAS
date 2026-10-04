@@ -634,6 +634,7 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
             if desired_runners and not dry_run:
                 adapter.set_runner_count(desired_runners)
 
+            archived_in_xunlei_tids = set()
             for xt in xunlei_tasks:
                 tid = xt["id"]
                 phase = xt["phase"]
@@ -679,8 +680,12 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
                         last_prog_at = now
 
                     if phase == "PHASE_TYPE_COMPLETE":
-                        cur.execute("UPDATE tasks SET status = 'completed', progress = 100, completed_at = ?, speed = 0 WHERE infohash = ?", (now, h))
-                        record_telemetry("task_completed", {"infohash": h, "title": xt["name"], "task_id": tid})
+                        # 防震荡铁律: 若任务已归档入库 (archived)，绝不重新拉回到 completed，且登记其迅雷任务 ID 待 GC 清理
+                        if row["status"] == "archived":
+                            archived_in_xunlei_tids.add(tid)
+                        elif row["status"] != "completed":
+                            cur.execute("UPDATE tasks SET status = 'completed', progress = 100, completed_at = COALESCE(completed_at, ?), speed = 0 WHERE infohash = ?", (now, h))
+                            record_telemetry("task_completed", {"infohash": h, "title": xt["name"], "task_id": tid})
                     else:
                         cur.execute("UPDATE tasks SET progress = ?, speed = ?, last_progress_at = ?, first_active_at = ? WHERE infohash = ?", (progress, speed, last_prog_at, first_act_at, h))
             if not dry_run:
@@ -905,14 +910,16 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
         # 5.5 迅雷任务列表垃圾回收 (仅清理已入库 archived、retry、stalled 记录)
         if not dry_run:
             cur.execute("SELECT xunlei_task_id FROM tasks WHERE status IN ('archived', 'retry', 'stalled') AND xunlei_task_id IS NOT NULL AND xunlei_task_id != '' LIMIT 50")
-            cleanup_tids = [r["xunlei_task_id"] for r in cur.fetchall()]
-            if cleanup_tids:
-                succ, _ = adapter.delete_task(cleanup_tids)
+            cleanup_tids = set(r["xunlei_task_id"] for r in cur.fetchall())
+            cleanup_tids.update(archived_in_xunlei_tids)
+            cleanup_list = list(cleanup_tids)
+            if cleanup_list:
+                succ, _ = adapter.delete_task(cleanup_list)
                 if succ:
-                    placeholders = ",".join(["?"] * len(cleanup_tids))
-                    cur.execute(f"UPDATE tasks SET xunlei_task_id = '' WHERE xunlei_task_id IN ({placeholders})", cleanup_tids)
+                    placeholders = ",".join(["?"] * len(cleanup_list))
+                    cur.execute(f"UPDATE tasks SET xunlei_task_id = '' WHERE xunlei_task_id IN ({placeholders})", cleanup_list)
                     conn.commit()
-                    print(f"已清理迅雷任务列表中 {len(cleanup_tids)} 个已归档/让位任务的旧记录。")
+                    print(f"已清理迅雷任务列表中 {len(cleanup_list)} 个已归档/让位任务的旧记录。")
 
         # 6. 安全搬移已完成文件 (SSD -> HDD)
         if not dry_run:

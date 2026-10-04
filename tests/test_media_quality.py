@@ -102,6 +102,10 @@ class TestMediaQualityRegression(unittest.TestCase):
         self.assertEqual(extract_canonical_avid("CPZ69-015 高清"), "CPZ-69015")
         self.assertEqual(extract_canonical_avid("420ERK-111 高清"), "ERK-111")
         self.assertEqual(extract_canonical_avid("MVSD- 593- C 高清 字幕"), "MVSD-593")
+        self.assertEqual(extract_canonical_avid("[FHD-1080P]MIRD-079 高清"), "MIRD-079")
+        self.assertEqual(extract_canonical_avid("hjd-2048-0512-meyd-368-h264 高清"), "MEYD-368")
+        self.assertEqual(extract_canonical_avid("第一會所新片@SIS001@FHD_6M-SDDE-663 高清"), "SDDE-663")
+        self.assertEqual(extract_canonical_avid("【ses-23】SDMU-179.1080p 高清"), "SDMU-179")
 
     # Test 10: actual 6K ffprobe 参数 -> 6K
     def test_10_actual_6k_detection(self):
