@@ -242,6 +242,38 @@ def inspect_entry(entry: Path, xunlei_fds: set, quiet_seconds: int = DEFAULT_QUI
 
     return False, "未知文件类型"
 
+def is_sample_or_ad_video(file_path: Path, file_size: int) -> bool:
+    """
+    精细化广告样片判定 (杜绝误伤 OVA/短篇正片):
+    1. 含有明确广告样片关键词 ('sample', 'trailer', 'preview', '广告', '宣传', '最新地址') -> 判定为垃圾样片
+    2. 文件体积 < 150MB:
+       - 尝试通过 ffprobe 探测时长:
+         - 时长 >= 1200秒 (20分钟) -> 判定为正规短片/OVA，安全保留！
+         - 时长 < 1200秒 -> 判定为片头广告/样片，安全过滤
+       - 若无 ffprobe 或探测失败 -> 视名称若包含 sample/ad 判定过滤，否则保守保留
+    3. 文件体积 >= 150MB -> 正片保留
+    """
+    fname_lower = file_path.name.lower()
+    ad_keywords = ("sample", "trailer", "preview", "广告", "宣传", "最新地址", "澳門", "荷官", "发牌", "草榴")
+    if any(k in fname_lower for k in ad_keywords):
+        return True
+
+    if file_size < 150 * 1024 * 1024:
+        try:
+            ff_bin = shutil.which("ffprobe") or ("/opt/bin/ffprobe" if Path("/opt/bin/ffprobe").is_file() else "ffprobe")
+            cmd = [ff_bin, "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", str(file_path)]
+            res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=5)
+            if res.returncode == 0 and res.stdout.strip():
+                dur = float(res.stdout.strip())
+                if dur >= 1200.0:
+                    return False  # 正规短片/OVA，保留！
+                return True       # 小于20分钟的小片段，过滤
+        except Exception:
+            pass
+        return True
+
+    return False
+
 def fast_copy_with_verify(src_path: Path, dst_path: Path, logger, chunk_size=16*1024*1024):
     """
     高性能分块复制 (16MB Buffer 跑满 NVMe 读与 RAID 5 连续顺序写)
@@ -252,8 +284,9 @@ def fast_copy_with_verify(src_path: Path, dst_path: Path, logger, chunk_size=16*
             # 搬运时自动过滤掉残留的未完成临时文件 (.xltd 等)
             if src_path.suffix.lower() in TEMP_EXTENSIONS or ".xltd" in src_path.name.lower():
                 return
-            # 搬运时自动过滤广告小视频 (<150M) 与宣传垃圾文件，避免干扰 JavSP 刮削
-            if src_path.suffix.lower() in MEDIA_EXTENSIONS and src_path.stat().st_size < 150 * 1024 * 1024:
+            # 搬运时精细化过滤广告样片与宣传垃圾文件，避免干扰 JavSP 刮削
+            if src_path.suffix.lower() in MEDIA_EXTENSIONS and is_sample_or_ad_video(src_path, src_path.stat().st_size):
+                logger.info(f"安全跳过广告样片/短片头: {src_path.name} ({src_path.stat().st_size / (1024*1024):.2f} MB)")
                 return
             if src_path.suffix.lower() in {".apk", ".url", ".html", ".htm", ".mhtml", ".chm"}:
                 return

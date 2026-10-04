@@ -1,11 +1,33 @@
 # MediaFlow-NAS
 
-> **专为家庭 NAS 设计的全自动影视流水线**  
-> 以迅雷 NAS 为下载引擎，具备自适应动态水位调度、画质升级智能门禁、冷热存储分层流转与 Emby 零负载同步。
+> **MediaFlow-NAS is an automated, watermark-scheduled media ingestion and storage tiering framework designed for personal Synology / Linux NAS servers.**  
+> 专为家庭 NAS 设计的全自动影视流转中枢：以迅雷 NAS 为下载引擎，具备自适应动态水位调度、画质升级智能门禁、冷热存储分层流转与 Emby 零负载增量同步。
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Release: v2.1.0](https://img.shields.io/badge/Release-v2.1.0-blue.svg)]()
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Python: 3.10+](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)](https://www.python.org/)
 [![Platform: Synology / Linux](https://img.shields.io/badge/Platform-Synology%20%7C%20Linux-orange.svg)]()
+
+---
+
+> ### ⚠️ 免责声明与合规告知 (Legal Disclaimer)
+> 1. 本项目为通用个人私有 NAS 媒体流转自动化工具，旨在研究分布式存储分层、异步动态调度与私有媒体库同步技术。
+> 2. 本项目**不提供、不分发、不托管、不传播任何视听内容或种子文件**。
+> 3. 使用者须自行对其使用的媒体内容来源负责，并严格遵守所在国家或地区的著作权及相关法律法规。因使用者违反相关法律所造成的一切后果均由使用者自行承担，与本项目贡献者无关。
+
+---
+
+## ⚡ 1 秒免环境离线体验 (Quick Demo)
+
+无需准备群晖硬件，无需配置迅雷或部署 Docker，任何开发者克隆本项目后，单命令即可体验完整的**真实多版本比对、HEVC 保护法则、4K升维放行与容量预算审计**：
+
+```bash
+git clone https://github.com/1154761334/MediaFlow-NAS.git
+cd MediaFlow-NAS
+
+# 运行离线交互演示
+python3 gate/demo_run.py
+```
 
 ---
 
@@ -164,20 +186,23 @@ python3 -m unittest discover -s tests -p "test_*.py" -v
 ### 5. 导入第一批磁力链接
 准备一个包含磁力链接的文件 `magnets.txt`：
 ```bash
-# 步骤 1: 试运行评估 (Dry-Run，默认只读，不修改任何文件和数据库)
-python3 gate/media_ingest.py magnets.txt
+# 步骤 1: 深度容量预算与风险审计 (默认只读评估)
+python3 gate/media_ingest.py magnets.txt --audit
 
-# 步骤 2: 确认放行与拦截策略符合预期后，正式提交入库
-python3 gate/media_ingest.py magnets.txt --commit
+# 步骤 2: 正式提交入库 (支持使用 --quota 限制单批次放行上限，例如限制前 500 部)
+python3 gate/media_ingest.py magnets.txt --commit --quota 500
 ```
 
-### 6. 启动调度器
+### 6. 核心运维与灾备指令
 ```bash
-# 手动触发单轮自适应水位调度
-python3 core/orchestrator.py --cycle
-
 # 查看全景控制台仪表盘
 python3 core/orchestrator.py --status
+
+# 溯源查询特定任务的全生命周期事件链
+python3 core/orchestrator.py --trace IPZZ-912
+
+# 立即执行一次数据库在线热灾备 (自动打包压缩并维护 7 天快照)
+python3 diagnostics/backup.py --run
 
 # 执行一键全系统健康巡检
 python3 diagnostics/check_health.py

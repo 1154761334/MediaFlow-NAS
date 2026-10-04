@@ -144,7 +144,7 @@ def parse_magnet_entry(magnet_str: str) -> Dict[str, Any]:
         "candidate_profile": qtags
     }
 
-def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optional[Path] = None) -> Dict[str, Any]:
+def run_ingest_gate(input_file: Path, commit: bool = False, quota: int = 0, custom_report: Optional[Path] = None) -> Dict[str, Any]:
     if not input_file.exists():
         print(f"错误: 输入文件不存在: {input_file}")
         sys.exit(1)
@@ -264,6 +264,34 @@ def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optio
     report_ts = time.strftime("%Y%m%d-%H%M%S")
     report_file = custom_report or (REPORTS_DIR / f"ingest-{report_ts}.json")
 
+    # 容量与资源预算评估 (Audit Mode)
+    avg_movie_gb = 4.5
+    est_total_hdd_gb = will_import_cnt * avg_movie_gb
+    est_total_hdd_tb = est_total_hdd_gb / 1024.0
+    est_peak_ssd_gb = min(45, will_import_cnt) * 8.0  # 假设峰值并发 45 槽位同时写 8GB 大文件
+
+    import shutil
+    try:
+        ssd_stat = shutil.disk_usage("/volume1")
+        ssd_free_gb = ssd_stat.free / (1024**3)
+    except Exception:
+        ssd_free_gb = 500.0
+
+    print("\n" + "=" * 70)
+    print("                MediaFlow-NAS 容量预算与风险审计")
+    print("=" * 70)
+    print(f"  • 预计新增 HDD 归档容量需求: ~{est_total_hdd_tb:.2f} TB (~{est_total_hdd_gb:.0f} GB, 基于均值 4.5GB/部)")
+    print(f"  • 预计 SSD 下载缓冲峰值占用: ~{est_peak_ssd_gb:.0f} GB (基于 45 槽位并发上限)")
+    print(f"  • 当前 SSD 实际剩余可用空间:  {ssd_free_gb:.1f} GB")
+    if ssd_free_gb < est_peak_ssd_gb + 120:
+        print("  \033[33m[WARN] SSD 剩余可用空间相对紧张，接近 120GB 熔断安全线，建议分批导入！\033[0m")
+    else:
+        print("  \033[32m[OK] SSD 缓冲空间充足，远高于 120GB/180GB 熔断线。\033[0m")
+
+    if will_import_cnt > 1000:
+        print(f"  \033[33m[TIP] 本批次待导入新片达 {will_import_cnt} 部，推荐使用 --quota 500 分批次循序渐进消费。\033[0m")
+    print("=" * 70)
+
     report_payload = {
         "timestamp": report_ts,
         "input_file": str(input_file),
@@ -276,6 +304,11 @@ def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optio
             "UPGRADE": upgrade_cnt,
             "SKIP": skip_cnt,
             "REVIEW": review_cnt
+        },
+        "budget_estimate": {
+            "est_hdd_tb": round(est_total_hdd_tb, 2),
+            "est_ssd_peak_gb": round(est_peak_ssd_gb, 1),
+            "ssd_free_gb": round(ssd_free_gb, 1)
         },
         "details": results
     }
@@ -290,10 +323,24 @@ def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optio
             print("无可准入任务需要导入。")
             return report_payload
 
+        if quota and quota > 0 and len(to_import) > quota:
+            print(f"\n★ [批次配额保护生效] 当前总计 {len(to_import)} 部准入任务，按 --quota {quota} 仅截取前 {quota} 部提交入库。")
+            to_import = to_import[:quota]
+
         now = int(time.time())
         qconn = sqlite3.connect(str(QUEUE_DB), timeout=30)
         imported = 0
         with qconn:
+            # 确保 task_events 表存在
+            qconn.execute("""
+                CREATE TABLE IF NOT EXISTS task_events (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    infohash TEXT NOT NULL,
+                    event TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    detail TEXT
+                );
+            """)
             for entry in to_import:
                 it = entry["item"]
                 try:
@@ -305,6 +352,16 @@ def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optio
                     """, (it["btih"], it["magnet"], it["dn"], it["avid"], now))
                     if cur.rowcount == 1:
                         imported += 1
+                        event_detail = json.dumps({
+                            "decision": entry.get("decision"),
+                            "reason": entry.get("reason"),
+                            "avid": it.get("avid"),
+                            "title": it.get("dn")
+                        }, ensure_ascii=False)
+                        qconn.execute("""
+                            INSERT INTO task_events (infohash, event, timestamp, detail)
+                            VALUES (?, 'TASK_INGEST', ?, ?)
+                        """, (it["btih"], now, event_detail))
                 except Exception as e:
                     print(f"写入 queue.db 失败 [{it['avid']}]: {e}")
         qconn.close()
@@ -317,14 +374,16 @@ def run_ingest_gate(input_file: Path, commit: bool = False, custom_report: Optio
     return report_payload
 
 def main():
-    parser = argparse.ArgumentParser(description="Media Automation v2.0R — 磁力智能预筛门禁")
+    parser = argparse.ArgumentParser(description="MediaFlow-NAS — 磁力智能预筛门禁与容量审计")
     parser.add_argument("magnet_file", help="磁力链接文本文件路径")
-    parser.add_argument("--commit", action="store_true", help="确认正式将 NEW 和 UPGRADE 任务写入 queue.db")
+    parser.add_argument("--commit", action="store_true", help="确认正式将准入任务写入 queue.db")
+    parser.add_argument("--quota", type=int, default=0, help="批次限额配额：限制单批次最多导入 N 个任务")
+    parser.add_argument("--audit", action="store_true", help="仅执行深度容量审计与风险评估 (默认只读)")
     parser.add_argument("--report", help="指定审计报告保存路径")
     args = parser.parse_args()
 
     rep_path = Path(args.report) if args.report else None
-    run_ingest_gate(Path(args.magnet_file), commit=args.commit, custom_report=rep_path)
+    run_ingest_gate(Path(args.magnet_file), commit=args.commit, quota=args.quota, custom_report=rep_path)
 
 if __name__ == "__main__":
     main()

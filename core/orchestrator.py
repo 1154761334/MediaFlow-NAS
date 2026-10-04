@@ -86,6 +86,22 @@ def record_telemetry(event_type, details):
     except Exception:
         pass
 
+def record_task_event(conn, infohash, event_type, details=None):
+    """
+    记录结构化任务生命周期事件至 task_events 表
+    """
+    if not infohash or not event_type:
+        return
+    try:
+        now_ts = int(time.time())
+        detail_json = json.dumps(details or {}, ensure_ascii=False)
+        conn.execute(
+            "INSERT INTO task_events (infohash, event, timestamp, detail) VALUES (?, ?, ?, ?)",
+            (infohash, event_type, now_ts, detail_json)
+        )
+    except Exception:
+        pass
+
 class SingleInstanceLock:
     """
     进程级别单实例文件锁，防止 systemd timer 与手工 CLI 调度并发运行造成竞争
@@ -509,6 +525,7 @@ def sync_archived_with_library(conn, archive_path_str=None):
                 "UPDATE tasks SET status = 'archived', archived_at = ? WHERE infohash = ? AND status = 'completed'",
                 (now, r["infohash"])
             )
+            record_task_event(conn, r["infohash"], "ARCHIVED", {"path": matched_folder})
             updated_cnt += 1
             if matched_folder:
                 matched_leaf_folders.add(matched_folder)
@@ -686,6 +703,7 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
                         elif row["status"] != "completed":
                             cur.execute("UPDATE tasks SET status = 'completed', progress = 100, completed_at = COALESCE(completed_at, ?), speed = 0 WHERE infohash = ?", (now, h))
                             record_telemetry("task_completed", {"infohash": h, "title": xt["name"], "task_id": tid})
+                            record_task_event(conn, h, "TASK_COMPLETE", {"title": xt["name"], "task_id": tid})
                     else:
                         cur.execute("UPDATE tasks SET progress = ?, speed = ?, last_progress_at = ?, first_active_at = ? WHERE infohash = ?", (progress, speed, last_prog_at, first_act_at, h))
             if not dry_run:
@@ -748,6 +766,7 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
 
                     cur.execute("UPDATE tasks SET status = ?, retry_count = ?, next_retry_at = ?, speed = 0 WHERE infohash = ?", (new_status, rc, next_at, r["infohash"]))
                     record_telemetry("task_evicted", {"infohash": r["infohash"], "title": r["title"], "retry_count": rc, "progress": r["progress"] or 0, "reason": evict_reason, "delay_hours": delay_h, "new_status": new_status})
+                    record_task_event(conn, r["infohash"], "STALL_EVICT", {"reason": evict_reason, "retry_count": rc, "delay_hours": delay_h, "new_status": new_status})
                     conn.commit()
 
         # 4. 统计到期 Eligible 规模 (零批量 UPDATE，仅作状态监控)
@@ -889,6 +908,7 @@ def run_schedule_cycle(dry_run=False, max_add_override=None):
                             try:
                                 cur.execute("UPDATE tasks SET status = 'active', xunlei_task_id = ?, first_active_at = ?, last_progress_at = ? WHERE infohash = ?", (tid, now, now, c["infohash"]))
                                 record_telemetry("task_injected", {"infohash": c["infohash"], "title": c["title"], "avid": c["avid"] or "", "tier": tname, "retry_count": c["retry_count"] or 0, "progress": c["progress"] or 0, "task_id": tid})
+                                record_task_event(conn, c["infohash"], "ADMIT_INJECT", {"tier": tname, "task_id": tid, "retry_count": c["retry_count"] or 0})
                                 conn.commit()
                             except Exception as db_err:
                                 print(f"  [DB写异常] 迅雷任务已创建 (Task ID: {tid}) 但数据库更新失败: {db_err} (将在下一周期入口基于 BTIH 自动无损修复)")
@@ -979,6 +999,33 @@ def set_token_command(new_token):
         yaml.safe_dump(cfg, f, allow_unicode=True)
     print("成功更新 config.yaml 中的 pan_auth_token！")
 
+def trace_task_command(target):
+    target = target.strip()
+    conn = get_db_connection()
+    conn.row_factory = sqlite3.Row
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM tasks WHERE infohash = ? OR avid = ? OR title LIKE ? LIMIT 1", (target.lower(), target.upper(), f"%{target}%"))
+    task = cur.fetchone()
+    if not task:
+        print(f"未找到与 [{target}] 相关的任务！")
+        return
+    h = task["infohash"]
+    print("=" * 70)
+    print(f"任务详情: [{task['avid'] or '未知番号'}] {task['title']}")
+    print(f"BTIH: {h} | 状态: {task['status']} | 进度: {task['progress']}% | 重试次数: {task['retry_count']}")
+    print("-" * 70)
+    cur.execute("SELECT * FROM task_events WHERE infohash = ? ORDER BY timestamp ASC, id ASC", (h,))
+    events = cur.fetchall()
+    if not events:
+        print("暂无详细生命周期事件记录（该任务可能在引入 task_events 前已进入队列）。")
+    else:
+        print(f"生命周期事件链 (共 {len(events)} 项):")
+        for ev in events:
+            t_str = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(ev["timestamp"]))
+            detail = ev["detail"] or ""
+            print(f"  [{t_str}] {ev['event']:<16} -> {detail}")
+    print("=" * 70)
+
 def main():
     if len(sys.argv) < 2 or sys.argv[1] in ("--help", "-h"):
         print("用法:")
@@ -986,12 +1033,18 @@ def main():
         print("  python3 xunlei_orchestrator.py --cycle                  # 手动执行一轮自适应调度")
         print("  python3 xunlei_orchestrator.py --cycle --limit <N>      # Canary 限制单轮最多注水 N 个任务")
         print("  python3 xunlei_orchestrator.py --dry-run-schedule       # 纯只读试运行准入决策对比")
+        print("  python3 xunlei_orchestrator.py --trace <AVID/BTIH>      # 溯源查询任务全生命周期事件链")
         print("  python3 xunlei_orchestrator.py --set-token <token>      # 更新迅雷 pan-auth token")
         return
 
     cmd = sys.argv[1]
     if cmd == "--status":
         show_dashboard()
+    elif cmd == "--trace":
+        if len(sys.argv) > 2:
+            trace_task_command(sys.argv[2])
+        else:
+            print("错误: 请提供番号或 BTIH，例如: python3 xunlei_orchestrator.py --trace IPZZ-912")
     elif cmd == "--cycle":
         limit = None
         if len(sys.argv) > 3 and sys.argv[2] == "--limit":
