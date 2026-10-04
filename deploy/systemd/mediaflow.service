@@ -1,0 +1,12 @@
+[Unit]
+Description=MediaFlow-NAS Pipeline Orchestrator & Mover
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/volume1/docker/MediaFlow-NAS
+Environment=PATH=/usr/syno/bin:/usr/syno/sbin:/usr/bin:/bin:/usr/local/bin
+ExecStart=/bin/bash /volume1/docker/MediaFlow-NAS/deploy/entrypoint.sh
+StandardOutput=journal
+StandardError=journal

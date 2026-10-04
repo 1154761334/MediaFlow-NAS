@@ -1,0 +1,4 @@
+# MediaFlow-NAS Dependencies
+# Core is strictly designed to rely on Python Standard Library for minimal footprint on NAS environments.
+
+PyYAML>=6.0

@@ -1,0 +1,105 @@
+# ==============================================================================
+# MediaFlow-NAS 全局配置模板 (config.example.yaml)
+# 复制本文件为 config.yaml，并根据你的 NAS 存储挂载点与网络环境修改路径及参数
+# ==============================================================================
+
+paths:
+  # 任务调度状态数据库路径 (SQLite)
+  db_path: ./data/queue.db
+
+  # 本地媒体资产库索引数据库路径 (SQLite)
+  inventory_db: ./data/media_inventory.db
+
+  # SSD 高速下载缓冲盘路径 (迅雷 NAS 引擎的下载落盘目录)
+  ssd_download: /volume1/迅雷/下载
+
+  # HDD 机械盘搬运与重刮缓冲暂存区
+  hdd_staging: /volume2/video/avnook/#重刮队列/avok
+
+  # HDD 机械盘正式归档影视库根目录 (支持多个归档库)
+  hdd_archive: /volume2/video/avnook/#整理完成
+
+  # 运行调度日志路径
+  log_file: ./mover.log
+
+scheduler:
+  # 调度巡检周期 (秒，建议配合 systemd 2分钟/120秒 执行一次)
+  interval_seconds: 120
+
+  # 期望维持的高速活跃下载任务水位 (目标并发数)
+  target_active: 32
+
+  # 最低活跃任务补充线 (低于此数量时触发补货)
+  low_watermark: 22
+
+  # 迅雷物理槽位安全上限 (防止任务过多导致套件崩溃)
+  max_physical_active: 45
+
+  # 单轮调度周期最多允许新注入的任务数
+  add_per_cycle: 8
+
+  # 每个磁力提交之间的间隔停顿 (秒，防止 API 并发过快)
+  feed_delay_seconds: 2.5
+
+  # 目标带宽阈值 (MB/s，当总下行跑满此速度时暂停新任务注入)
+  bandwidth_target_mb: 50.0
+
+  # 慢速任务判定线 (KB/s)
+  slow_speed_threshold_kb: 50
+
+stall:
+  # 元数据 (Metadata) 解析超时让位时间 (分钟)
+  metadata_timeout_minutes: 15
+
+  # 持续 0 速度判定死种时间 (小时，超过此时间暂停并移出槽位)
+  no_progress_hours: 0.8
+
+  # 梯级退避重试时间间隔 (小时，第1次 / 第2次 / 第3次)
+  retry_hours:
+    - 6
+    - 24
+    - 72
+
+  # 长期死种复活排查周期 (天)
+  cold_retry_days: 7
+
+storage:
+  # SSD 熔断停止投递阈值 (GB，剩余空间低于此值停止新任务注入)
+  stop_free_gb: 120.0
+
+  # SSD 恢复投递安全线 (GB，剩余空间释放回此值以上恢复投递)
+  resume_free_gb: 180.0
+
+xunlei:
+  # 迅雷 NAS 套件内部端口与凭证文件路径 (群晖默认路径)
+  info_file: /volume1/@appstore/pan-xunlei-com/bin/bin/info.file
+
+  # 迅雷 Unix Domain Socket 路径 (若存在则优先使用 Socket 直连)
+  sock_path: /volume1/@appstore/pan-xunlei-com/var/pan-xunlei-com.sock
+
+  # 迅雷 NAS 引擎认证 Token (从抓包或套件内部获取)
+  pan_auth_token: "YOUR_XUNLEI_PAN_AUTH_TOKEN_HERE"
+
+  # 迅雷并发 Runner 数量
+  runner_count: 24
+
+scrape:
+  # JavSP 刮削容器名
+  docker_container: javsp-avnook
+
+  # 暂存区累积待刮影片达到此数量时，自动触发启动刮削容器
+  batch_count_trigger: 3
+
+  # 最长等待刮削时间 (分钟，超时即使不足3部也强制启动)
+  max_wait_minutes: 30
+
+emby:
+  # Emby Server 本地内网地址 (局域网直连，严禁走外部代理)
+  url: "http://127.0.0.1:8096"
+
+  # Emby API 密钥 (用于精准单片叶子增量刷新)
+  api_key: "YOUR_EMBY_API_KEY_HERE"
+
+translation:
+  # 本地大模型翻译路由服务地址 (如 translation-router)
+  router_url: "http://127.0.0.1:18088"

@@ -1,0 +1,11 @@
+[Unit]
+Description=Run MediaFlow-NAS Pipeline Orchestrator every 2 minutes
+After=network.target
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=2min
+Unit=mediaflow.service
+
+[Install]
+WantedBy=timers.target

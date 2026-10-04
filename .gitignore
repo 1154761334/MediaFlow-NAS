@@ -1,0 +1,49 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Databases & Runtime State (NEVER COMMIT SENSITIVE DATA)
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+reports/
+orchestrator_state.json
+feed_progress.json
+*.lock
+
+# Logs & Telemetry
+*.log
+*.log.*
+*.jsonl
+scheduler_telemetry.jsonl
+
+# User Configurations & Secrets
+config.yaml
+.env
+.env.*
+!.env.example
+
+# Magnets & Batch Task Inputs
+*.txt
+*.rtf
+!requirements.txt
+
+# Backups & Temp files
+backup/
+backups/
+*.bak
+*.bak_*
+tmp/
+temp/
+
+# IDE & OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*~
