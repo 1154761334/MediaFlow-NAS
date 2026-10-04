@@ -134,7 +134,7 @@
 
 ### 2. 克隆项目与安装依赖
 ```bash
-git clone https://github.com/your-username/MediaFlow-NAS.git
+git clone https://github.com/1154761334/MediaFlow-NAS.git
 cd MediaFlow-NAS
 
 # 安装依赖 (仅依赖 PyYAML，其余皆为 Python 原生标准库，极简轻量)
