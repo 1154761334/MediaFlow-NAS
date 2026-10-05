@@ -414,6 +414,44 @@ def clean_and_sanitize_target(target: Path, logger):
     except Exception as e:
         logger.warning(f"标准化处理异常 (非致命): {e}")
 
+def apply_hygiene_if_enabled(target: Path, logger: logging.Logger):
+    """新入库影片媒体卫生自动检测与无损广告清理钩子"""
+    try:
+        from core.config import load_config
+        cfg = load_config()
+        hygiene_cfg = cfg.get("hygiene", {})
+        if not hygiene_cfg.get("enabled", False):
+            return
+
+        from media_hygiene.pipeline import process_video_hygiene
+        dry_run = hygiene_cfg.get("dry_run", False)
+        min_conf = hygiene_cfg.get("min_confidence", 85)
+        trash_dir = hygiene_cfg.get("trash_dir", "/volume2/video/.media_trash")
+
+        candidates = []
+        if target.is_file() and target.suffix.lower() in MEDIA_EXTENSIONS:
+            candidates.append(target)
+        elif target.is_dir():
+            for root, _, files in os.walk(target):
+                for f in files:
+                    fp = Path(root) / f
+                    if fp.suffix.lower() in MEDIA_EXTENSIONS:
+                        candidates.append(fp)
+
+        for vid in candidates:
+            res = process_video_hygiene(
+                str(vid),
+                dry_run=dry_run,
+                min_confidence=min_conf,
+                trash_root=trash_dir
+            )
+            if res.get("status") in ("CLEANED", "CLEANED_DRY_RUN"):
+                logger.info(f"✨ [Media Hygiene] {vid.name}: {res.get('reason')}")
+            elif res.get("status") == "REVIEW_PENDING":
+                logger.warning(f"⚠️ [Media Hygiene] {vid.name}: 待人工复核 - {res.get('reason')}")
+    except Exception as e:
+        logger.warning(f"[Media Hygiene] 预处理非致命异常，跳过并继续入库: {e}")
+
 def set_destination_permissions(path: Path):
     """赋予目标文件 0777 权限，方便群晖各用户及 Docker(JavSP/Emby)读取"""
     try:
@@ -532,6 +570,7 @@ def run_archive(src_dir: str, dest_dir: str, quiet_sec: int, dry_run: bool, stat
         try:
             fast_copy_with_verify(item, target, logger)
             clean_and_sanitize_target(target, logger)
+            apply_hygiene_if_enabled(target, logger)
             set_destination_permissions(target)
             logger.info(f"★ 成功归档并释放 SSD 空间: {item.name} -> {target}")
         except Exception as e:

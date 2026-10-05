@@ -1,0 +1,37 @@
+{
+  "signatures": [
+    {
+      "id": "leyu_uu_standard_75s",
+      "name": "乐鱼体育+UU视讯标准版75秒",
+      "description": "常见于色花堂/字幕组压制片源，前15秒高频切换，在75.7秒进入黑屏或正片",
+      "scene_timestamps": [0.48, 1.08, 2.24, 2.80, 3.92, 4.52, 7.56, 8.40, 9.32, 10.00, 10.64, 11.20, 11.80, 12.36],
+      "min_matched_scenes": 6,
+      "expected_cut_point": 75.72,
+      "cut_point_window": [74.5, 77.0],
+      "requires_silence_or_black": true,
+      "confidence": 98
+    },
+    {
+      "id": "uu_qr_long_103s",
+      "name": "UU视讯高清二维码版103秒",
+      "description": "常见于部分高码率中文汉化版，片头广告延展至103秒，包含大号二维码与下载引导",
+      "scene_timestamps": [0.48, 1.08, 2.24, 2.80, 3.92, 4.52, 7.56, 8.40],
+      "min_matched_scenes": 5,
+      "expected_cut_point": 103.32,
+      "cut_point_window": [102.0, 105.0],
+      "requires_silence_or_black": true,
+      "confidence": 98
+    },
+    {
+      "id": "91_hth_kaiyun_71s",
+      "name": "91成人/开云HTH多板块广告71秒",
+      "description": "包含成人快手/抖音/HTH体育/女优约炮拼盘，在71.4秒处硬切入正片",
+      "scene_timestamps": [4.04, 8.47, 16.08, 27.23, 46.78, 53.02],
+      "min_matched_scenes": 4,
+      "expected_cut_point": 71.44,
+      "cut_point_window": [70.0, 73.0],
+      "requires_silence_or_black": false,
+      "confidence": 96
+    }
+  ]
+}

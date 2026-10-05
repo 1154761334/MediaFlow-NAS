@@ -103,3 +103,12 @@ emby:
 translation:
   # 本地大模型翻译路由服务地址 (如 translation-router)
   router_url: "http://127.0.0.1:18088"
+
+hygiene:
+  # 智能媒体卫生增强 (片头拼接商业广告检测与无损切除)
+  enabled: true
+  dry_run: false
+  min_confidence: 85
+  trash_dir: "/volume2/video/.media_trash"
+  retention_days: 7
+
